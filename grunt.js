@@ -12,12 +12,20 @@ function getFiles() {
             form: [forms+'editable-form-bootstrap.js'],
             container: [containers+'editable-popover.js'],
             inputs: [
+                inputs+'date/bootstrap-datepicker/js/bootstrap-datepicker.js',
                 inputs+'date/date.js', 
                 inputs+'date/datefield.js', 
-                inputs+'date/bootstrap-datepicker/js/bootstrap-datepicker.js',
+                inputs+'datetime/datetime.js', 
+                inputs+'datetime/datetimefield.js',
+                //don't build datetime lib, should be included manually 
+                //inputs+'datetime/bootstrap-datetimepicker/js/bootstrap-datetimepicker.js',
                 inputs+'typeahead.js'
                 ], 
-            css: [inputs+'date/bootstrap-datepicker/css/datepicker.css']
+            css: [
+                inputs+'date/bootstrap-datepicker/css/datepicker.css'
+               //don't build datetime lib, should be included manually
+               //inputs+'datetime/bootstrap-datetimepicker/css/datetimepicker.css'
+                ]
         },  
         jqueryui: {
             form: [forms+'editable-form-jqueryui.js'],
@@ -104,8 +112,11 @@ function getFiles() {
 /*global module:false*/
 module.exports = function(grunt) {
 
-  grunt.loadNpmTasks('grunt-contrib');
+ grunt.loadNpmTasks('grunt-contrib');
 
+ //version of jquery-ui datepicker to be copied into dist
+ var dp_ui_ver = '1.10.2';
+ 
  //module for testing
  var module = ''; 
 // module = '&module=textarea';
@@ -171,6 +182,7 @@ module.exports = function(grunt) {
               'src/inputs/*.js', 
               'src/inputs/date/*.js',
               'src/inputs/dateui/*.js',
+              'src/inputs/datetime/*.js',
               'src/inputs/combodate/*.js',
               'src/inputs/select2/*.js',
               
@@ -227,7 +239,9 @@ module.exports = function(grunt) {
         ui_datepicker: {
             files: {
              //copy jquery ui datepicker
-             '<%= dist %>/jquery-editable/jquery-ui-datepicker/' : 'src/inputs/dateui/jquery-ui-datepicker/**'
+             '<%= dist %>/jquery-editable/jquery-ui-datepicker/js/': 'src/inputs/dateui/jquery-ui-datepicker/js/jquery-ui-'+dp_ui_ver+'.*.js',
+             '<%= dist %>/jquery-editable/jquery-ui-datepicker/css/redmond/': 'src/inputs/dateui/jquery-ui-datepicker/css/redmond/jquery-ui-'+dp_ui_ver+'.*.css',
+             '<%= dist %>/jquery-editable/jquery-ui-datepicker/css/redmond/images/': 'src/inputs/dateui/jquery-ui-datepicker/css/redmond/images/**'
          }
        }         
     },

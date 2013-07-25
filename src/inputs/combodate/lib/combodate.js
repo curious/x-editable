@@ -1,10 +1,20 @@
 /**
-* Combodate - 1.0.2
+* Combodate - 1.0.4
 * Dropdown date and time picker.
 * Converts text input into dropdowns to pick day, month, year, hour, minute and second.
 * Uses momentjs as datetime library http://momentjs.com.
 * For i18n include corresponding file from https://github.com/timrwood/moment/tree/master/lang 
 *
+* Confusion at noon and midnight - see http://en.wikipedia.org/wiki/12-hour_clock#Confusion_at_noon_and_midnight
+* In combodate: 
+* 12:00 pm --> 12:00 (24-h format, midday)
+* 12:00 am --> 00:00 (24-h format, midnight, start of day)
+* 
+* Differs from momentjs parse rules:
+* 00:00 pm, 12:00 pm --> 12:00 (24-h format, day not change)
+* 00:00 am, 12:00 am --> 00:00 (24-h format, day not change)
+* 
+* 
 * Author: Vitaliy Potapov
 * Project page: http://github.com/vitalets/combodate
 * Copyright (c) 2012 Vitaliy Potapov. Released under MIT License.
@@ -106,7 +116,7 @@
                 relTime;
                 
             if(this.options.firstItem === 'name') {
-                //need both to suuport moment ver < 2 and  >= 2
+                //need both to support moment ver < 2 and  >= 2
                 relTime = moment.relativeTime || moment.langData()._relativeTime; 
                 var header = typeof relTime[key] === 'function' ? relTime[key](1, true, key, false) : relTime[key];
                 //take last entry (see momentjs lang files structure) 
@@ -154,9 +164,10 @@
                 
             for(i=0; i<=11; i++) {
                 if(longNames) {
-                    name = moment().month(i).format('MMMM');
+                    //see https://github.com/timrwood/momentjs.com/pull/36
+                    name = moment().date(1).month(i).format('MMMM');
                 } else if(shortNames) {
-                    name = moment().month(i).format('MMM');
+                    name = moment().date(1).month(i).format('MMM');
                 } else if(twoDigit) {
                     name = this.leadZero(i+1);
                 } else {
@@ -171,13 +182,16 @@
         fill year
         */
         fillYear: function() {
-            var items = this.initItems('y'), name, i, 
+            var items = [], name, i, 
                 longNames = this.options.template.indexOf('YYYY') !== -1;
-
+           
             for(i=this.options.maxYear; i>=this.options.minYear; i--) {
                 name = longNames ? i : (i+'').substring(2);
-                items.push([i, name]);
-            }    
+                items[this.options.yearDescending ? 'push' : 'unshift']([i, name]);
+            }
+            
+            items = this.initItems('y').concat(items);
+            
             return items;              
         },    
         
@@ -189,9 +203,10 @@
                 h12 = this.options.template.indexOf('h') !== -1,
                 h24 = this.options.template.indexOf('H') !== -1,
                 twoDigit = this.options.template.toLowerCase().indexOf('hh') !== -1,
+                min = h12 ? 1 : 0, 
                 max = h12 ? 12 : 23;
                 
-            for(i=0; i<=max; i++) {
+            for(i=min; i<=max; i++) {
                 name = twoDigit ? this.leadZero(i) : i;
                 items.push([i, name]);
             } 
@@ -240,7 +255,7 @@
         },                                       
         
         /*
-         Returns current date value. 
+         Returns current date value from combos. 
          If format not specified - `options.format` used.
          If format = `null` - Moment object returned.
         */
@@ -269,12 +284,14 @@
                return '';
             }
             
-            //convert hours if 12h format
+            //convert hours 12h --> 24h 
             if(this.$ampm) {
-               values.hour = this.$ampm.val() === 'am' ? values.hour : values.hour+12;
-               if(values.hour === 24) {
-                   values.hour = 0;
-               }  
+                //12:00 pm --> 12:00 (24-h format, midday), 12:00 am --> 00:00 (24-h format, midnight, start of day)
+                if(values.hour === 12) {
+                    values.hour = this.$ampm.val() === 'am' ? 0 : 12;                    
+                } else {
+                    values.hour = this.$ampm.val() === 'am' ? values.hour : values.hour+12;
+                }
             }    
             
             dt = moment([values.year, values.month, values.day, values.hour, values.minute, values.second]);
@@ -299,6 +316,22 @@
                 that = this,
                 values = {};
             
+                //function to find nearest value in select options
+                function getNearest($select, value) {
+                    var delta = {};
+                    $select.children('option').each(function(i, opt){
+                        var optValue = $(opt).attr('value'),
+                        distance;
+
+                        if(optValue === '') return;
+                        distance = Math.abs(optValue - value); 
+                        if(typeof delta.distance === 'undefined' || distance < delta.distance) {
+                            delta = {value: optValue, distance: distance};
+                        } 
+                    }); 
+                    return delta.value;
+                }             
+            
             if(dt.isValid()) {
                  //read values from date object
                  $.each(this.map, function(k, v) {
@@ -309,16 +342,32 @@
                  });
                
                if(this.$ampm) {
-                   if(values.hour > 12) {
-                       values.hour -= 12;
+                   //12:00 pm --> 12:00 (24-h format, midday), 12:00 am --> 00:00 (24-h format, midnight, start of day)
+                   if(values.hour >= 12) {
                        values.ampm = 'pm';
+                       if(values.hour > 12) {
+                           values.hour -= 12;
+                       }
                    } else {
-                       values.ampm = 'am';                  
+                       values.ampm = 'am';
+                       if(values.hour === 0) {
+                           values.hour = 12;
+                       }
                    } 
                }
                
                $.each(values, function(k, v) {
+                   //call val() for each existing combo, e.g. this.$hour.val()
                    if(that['$'+k]) {
+                       
+                       if(k === 'minute' && that.options.minuteStep > 1 && that.options.roundTime) {
+                          v = getNearest(that['$'+k], v);
+                       }
+                       
+                       if(k === 'second' && that.options.secondStep > 1 && that.options.roundTime) {
+                          v = getNearest(that['$'+k], v);
+                       }                       
+                       
                        that['$'+k].val(v);                       
                    }
                });
@@ -393,10 +442,12 @@
         value: null,                       
         minYear: 1970,
         maxYear: 2015,
+        yearDescending: true,
         minuteStep: 5,
         secondStep: 1,
         firstItem: 'empty', //'name', 'empty', 'none'
-        errorClass: null
+        errorClass: null,
+        roundTime: true //whether to round minutes and seconds if step > 1
     };
 
 }(window.jQuery));

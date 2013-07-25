@@ -4,12 +4,13 @@
 * requires bootstrap-popover.js
 */
 (function ($) {
+    "use strict";
 
     //extend methods
     $.extend($.fn.editableContainer.Popup.prototype, {
         containerName: 'popover',
         //for compatibility with bootstrap <= 2.2.1 (content inserted into <p> instead of directly .popover-content) 
-        innerCss: $($.fn.popover.defaults.template).find('p').length ? '.popover-content p' : '.popover-content',
+        innerCss: $.fn.popover && $($.fn.popover.defaults.template).find('p').length ? '.popover-content p' : '.popover-content',
 
         initContainer: function(){
             $.extend(this.containerOptions, {
@@ -58,7 +59,7 @@
         */
         /*jshint laxcomma: true*/
         setPosition: function () { 
-         
+
             (function() {    
                 var $tip = this.tip()
                 , inside

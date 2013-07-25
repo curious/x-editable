@@ -8,6 +8,7 @@ Applied as jQuery method.
 @uses editableform
 **/
 (function ($) {
+    "use strict";
 
     var Popup = function (element, options) {
         this.init(element, options);
@@ -21,6 +22,7 @@ Applied as jQuery method.
     Popup.prototype = {
         containerName: null, //tbd in child class
         innerCss: null, //tbd in child class
+        containerClass: 'editable-container editable-popup', //css class applied to container element
         init: function(element, options) {
             this.$element = $(element);
             //since 1.4.1 container do not use data-* directly as they already merged into options.
@@ -31,6 +33,9 @@ Applied as jQuery method.
             this.formOptions.scope = this.$element[0]; 
             
             this.initContainer();
+            
+            //flag to hide container, when saving value will finish
+            this.delayedHide = false;
 
             //bind 'destroyed' listener to destroy container when element is removed from dom
             this.$element.on('destroyed', $.proxy(function(){
@@ -53,9 +58,23 @@ Applied as jQuery method.
                     var $target = $(e.target), i,
                         exclude_classes = ['.editable-container', 
                                            '.ui-datepicker-header', 
+                                           '.datepicker', //in inline mode datepicker is rendered into body
                                            '.modal-backdrop', 
                                            '.bootstrap-wysihtml5-insert-image-modal', 
-                                           '.bootstrap-wysihtml5-insert-link-modal'];
+                                           '.bootstrap-wysihtml5-insert-link-modal'
+                                           ];
+                    
+                    //check if element is detached. It occurs when clicking in bootstrap datepicker
+                    if (!$.contains(document.documentElement, e.target)) {
+                      return;
+                    }
+
+                    //for some reason FF 20 generates extra event (click) in select2 widget with e.target = document
+                    //we need to filter it via construction below. See https://github.com/vitalets/x-editable/issues/199
+                    //Possibly related to http://stackoverflow.com/questions/10119793/why-does-firefox-react-differently-from-webkit-and-ie-to-click-event-on-selec
+                    if($target.is(document)) {
+                       return; 
+                    }
                     
                     //if click inside one of exclude classes --> no nothing
                     for(i=0; i<exclude_classes.length; i++) {
@@ -76,6 +95,11 @@ Applied as jQuery method.
         splitOptions: function() {
             this.containerOptions = {};
             this.formOptions = {};
+            
+            if(!$.fn[this.containerName]) {
+                throw new Error(this.containerName + ' not found. Have you included corresponding js file?');   
+            }
+            
             var cDef = $.fn[this.containerName].defaults;
             //keys defined in container defaults go to container, others go to form
             for(var k in this.options) {
@@ -100,6 +124,7 @@ Applied as jQuery method.
             return this.$element.data(this.containerDataName || this.containerName); 
         },
 
+        /* call native method of underlying container, e.g. this.$element.popover('method') */ 
         call: function() {
             this.$element[this.containerName].apply(this.$element, arguments); 
         },        
@@ -115,22 +140,33 @@ Applied as jQuery method.
                 save: $.proxy(this.save, this), //click on submit button (value changed)
                 nochange: $.proxy(function(){ this.hide('nochange'); }, this), //click on submit button (value NOT changed)                
                 cancel: $.proxy(function(){ this.hide('cancel'); }, this), //click on calcel button
-                show: $.proxy(this.setPosition, this), //re-position container every time form is shown (occurs each time after loading state)
+                show: $.proxy(function() {
+                    if(this.delayedHide) {
+                        this.hide(this.delayedHide.reason);
+                        this.delayedHide = false;
+                    } else {
+                        this.setPosition();
+                    }
+                }, this), //re-position container every time form is shown (occurs each time after loading state)
                 rendering: $.proxy(this.setPosition, this), //this allows to place container correctly when loading shown
                 resize: $.proxy(this.setPosition, this), //this allows to re-position container when form size is changed 
                 rendered: $.proxy(function(){
                     /**        
-                    Fired when container is shown and form is rendered (for select will wait for loading dropdown options)
+                    Fired when container is shown and form is rendered (for select will wait for loading dropdown options).  
+                    **Note:** Bootstrap popover has own `shown` event that now cannot be separated from x-editable's one.
+                    The workaround is to check `arguments.length` that is always `2` for x-editable.                     
                     
                     @event shown 
                     @param {Object} event event object
                     @example
-                    $('#username').on('shown', function() {
-                        var editable = $(this).data('editable');
+                    $('#username').on('shown', function(e, editable) {
                         editable.input.$input.val('overwriting value of input..');
                     });                     
                     **/                      
-                    this.$element.triggerHandler('shown');
+                    /*
+                     TODO: added second param mainly to distinguish from bootstrap's shown event. It's a hotfix that will be solved in future versions via namespaced events.  
+                    */
+                    this.$element.triggerHandler('shown', this); 
                 }, this) 
             })
             .editableform('render');
@@ -151,15 +187,15 @@ Applied as jQuery method.
             
             //show container itself
             this.innerShow();
-            this.tip().addClass('editable-container');
+            this.tip().addClass(this.containerClass);
 
             /*
             Currently, form is re-rendered on every show. 
-            The main reason is that we dont know, what container will do with content when closed:
-            remove(), detach() or just hide().
+            The main reason is that we dont know, what will container do with content when closed:
+            remove(), detach() or just hide() - it depends on container.
             
             Detaching form itself before hide and re-insert before show is good solution, 
-            but visually it looks ugly, as container changes size before hide.  
+            but visually it looks ugly --> container changes size before hide.  
             */             
             
             //if form already exist - delete previous data 
@@ -192,35 +228,45 @@ Applied as jQuery method.
                 return;
             }
             
+            //if form is saving value, schedule hide
+            if(this.$form.data('editableform').isSaving) {
+                this.delayedHide = {reason: reason};
+                return;    
+            } else {
+                this.delayedHide = false;
+            }
+
             this.$element.removeClass('editable-open');   
             this.innerHide();
-            
-            /**        
-            Fired when container was hidden. It occurs on both save or cancel.
+
+            /**
+            Fired when container was hidden. It occurs on both save or cancel.  
+            **Note:** Bootstrap popover has own `hidden` event that now cannot be separated from x-editable's one.
+            The workaround is to check `arguments.length` that is always `2` for x-editable. 
 
             @event hidden 
             @param {object} event event object
-            @param {string} reason Reason caused hiding. Can be <code>save|cancel|onblur|nochange|undefined (=manual)</code>
+            @param {string} reason Reason caused hiding. Can be <code>save|cancel|onblur|nochange|manual</code>
             @example
             $('#username').on('hidden', function(e, reason) {
                 if(reason === 'save' || reason === 'cancel') {
                     //auto-open next editable
                     $(this).closest('tr').next().find('.editable').editable('show');
                 } 
-            });            
-            **/             
-            this.$element.triggerHandler('hidden', reason);   
+            });
+            **/
+            this.$element.triggerHandler('hidden', reason || 'manual');   
         },
-        
+
         /* internal show method. To be overwritten in child classes */
         innerShow: function () {
              
         },        
-        
+
         /* internal hide method. To be overwritten in child classes */
         innerHide: function () {
-    
-        },        
+
+        },
         
         /**
         Toggles container visibility (show / hide)
@@ -265,7 +311,7 @@ Applied as jQuery method.
             **/             
             this.$element.triggerHandler('save', params);
             
-            //hide must be after trigger, as saving value may require methods od plugin, applied to input
+            //hide must be after trigger, as saving value may require methods of plugin, applied to input
             this.hide('save');
         },
 
@@ -425,7 +471,7 @@ Applied as jQuery method.
         onblur: 'cancel',
         
         /**
-        Animation speed (inline mode)
+        Animation speed (inline mode only)
         @property anim 
         @type string
         @default false
