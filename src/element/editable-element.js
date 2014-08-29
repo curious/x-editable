@@ -50,7 +50,11 @@ Makes editable any HTML element on the page. Applied as jQuery method.
                   for complext objects value can be set as json string in data-value attribute, 
                   e.g. data-value="{city: 'Moscow', street: 'Lenina'}"
                 */
-                this.options.value = $.fn.editableutils.tryParseJson(this.options.value, true); 
+                // Curious: allow the 'json' option to explicitly specify whether
+                // the value is json and should not be parsed as such. Defaults to true.
+                if(this.options.json !== false) {
+                    this.options.value = $.fn.editableutils.tryParseJson(this.options.value, true); 
+                }
                 if(typeof this.options.value === 'string') {
                     this.value = this.input.str2value(this.options.value);
                 } else {
